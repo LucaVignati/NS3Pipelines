@@ -160,9 +160,8 @@ class SimulationRun(beam.DoFn):
       args = ["./ns3", "run"]
       a = "4G-5G_comparison "
       for key, value in params.items():
-        if key == "traffic":
-          if value == "yes":
-            a += "--" + key
+        if value == "yes":
+          a += "--" + key
         else:
           a += "--" + key + "=" + value
         a += " "

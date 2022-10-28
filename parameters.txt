@@ -1,0 +1,13 @@
+generation 5G
+scenario 1
+numerology 2
+numberOfueNodes 2:2:10
+numberOfenbNodes 1
+radius 150
+height 1.5
+seed 13,25
+simTime 6
+nPackets 3500
+interPacketInterval 0.000666666666666666666666666666666666667
+path NS3Pipelines/shadowing-traffic
+traffic yes

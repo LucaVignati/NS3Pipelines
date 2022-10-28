@@ -1,0 +1,11 @@
+randomSeeds 60
+randomSeedsSeed 2
+totalNumberOfPackets 4500000
+binWidth 0.1
+highestBin 20,50,300
+lateTreshold 20
+plotHistogram no
+plotCumulative no
+plotPosition no
+plotSummaryHistogram yes
+plotSummaryCumulative yes

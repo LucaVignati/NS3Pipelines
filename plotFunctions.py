@@ -5,6 +5,19 @@ matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 import numpy as np
 from itertools import cycle
+import neptune.new as neptune
+from neptune.new.types import File
+
+def uploadFigureToNeptune(params, name, fig=None, value=None, step=None, is_picture=False):
+    run = neptune.init_run(with_id=params['run'],
+                               api_token=params['api_token'],
+                               project=params['project'])
+    if is_picture:
+        run[name].upload(File.as_html(fig))
+    else:
+        for val, st in zip(value, step):
+            run[name].log(value=val, step=st)
+    run.stop()
 
 def plotE2ELatency(params, save=True, rxInLegend=True, forced=True):
     """
@@ -23,6 +36,8 @@ def plotE2ELatency(params, save=True, rxInLegend=True, forced=True):
         xLabel = 'Latency [ms]'
         yLabel = 'Probability [%]'
         plotHistogram(ax, params['highestBin'], params['nBins'], params['binWidth'], e2eLatHist, legendString, xLabel, yLabel)
+        if params['neptune']:
+            uploadFigureToNeptune(params, 'e2eLatHist', fig=fig, is_picture=True)
         if save:
             fig.savefig(str(e2eLatPlotFile), bbox_inches='tight')
         plt.close(fig)
@@ -39,6 +54,8 @@ def plotSummaryE2ELatency(params, save=True):
         ax = plotHistogram(ax, params['highestBin'], params['nBins'], params['binWidth'], e2eLatHist, '', xLabel, yLabel)
     
     ax.legend(legendStrings)
+    if params['neptune']:
+        uploadFigureToNeptune(params, 'e2eLatHist', fig=fig, is_picture=True)
     if save:
         fig.savefig(e2eLatPlotFile, bbox_inches='tight')
     plt.close(fig)
@@ -65,6 +82,8 @@ def plotCumulativeLat(params, save=True, forced=True):
                                                         'Late + lost (uplink)' + str(round(params['results']['uplinkLatePercentage'] * 100, 3)) + '%\n' + \
                                                         'Late (downlink)' + str(round(params['results']['downlinkLatePercentage'] * 100, 3)) + '%\n'
         plotCumulative(ax, params['highestBin'], params['nBins'], cumulativeLat, xLabel, yLabel, legendString)
+        if params['neptune']:
+            uploadFigureToNeptune(params, 'cumulativeLat', value=cumulativeLat, step=np.linspace(0, params['highestBin'], params['nBins']))
         if save:
             fig.savefig(str(e2eCumLatPlotFile), bbox_inches='tight')
         plt.close(fig)
@@ -81,6 +100,8 @@ def plotSummaryCumulativeLat(params, save=True):
         ax = plotCumulative(ax, params['highestBin'], params['nBins'], cumulativeLat, xLabel, yLabel, '')
     
     ax.legend(legendStrings)
+    if params['neptune']:
+        uploadFigureToNeptune(params, 'cumulativeLat', fig=fig, is_picture=True)
     if save:
         fig.savefig(e2eCumLatPlotFile, bbox_inches='tight')
     plt.close(fig)
@@ -133,6 +154,8 @@ def plotPacketStatistics(params, save=True):
         else:
             title += ' gNBs'
     fig.suptitle(title)
+    if params['neptune']:
+        uploadFigureToNeptune(params, 'statisticsSummary', fig=fig, is_picture=True)
     if save:
         fig.savefig(str(destFile))
     plt.close(fig)
@@ -163,7 +186,7 @@ def plotLatency(params):
     plt.close(fig)
 
 
-def plotPositions(params, forced=True):
+def plotPositions(params, save=True, forced=True):
     positions = params['positions']
     marker = ''
     title = 'Positions'
@@ -190,5 +213,8 @@ def plotPositions(params, forced=True):
 
         ax.set_aspect('equal', adjustable='box')
         fig.suptitle(title)
-        fig.savefig(str(destFile), bbox_inches='tight')
+        if params['neptune']:
+            uploadFigureToNeptune(params, 'positions', fig=fig, is_picture=True)
+        if save:
+            fig.savefig(str(destFile), bbox_inches='tight')
         plt.close(fig)

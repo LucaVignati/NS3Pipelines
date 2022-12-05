@@ -19,6 +19,12 @@ def getFileName(params, type):
       return Path(params['summaryPath'], filenameSummaryPrefix + str(params['highestBin']) + 'ms' + "_cumulativeLat.png")
     elif type == "statisticsSummaryPlotFile":
       return Path(params['summaryPath'], filenameSummaryPrefix + "_statistics.png")
+  elif "trace" in type:
+    if type == "trace-5G":
+      dlDataSinrFile = Path("DlDataSinr_r" + params['radius'] + numerology + "-s" + str(params['seed']) + "-t" + simTime + "-.txt")
+      rxPacketTraceFile = Path("RxPacketTrace_r" + params['radius'] + numerology + "-s" + str(params['seed']) + "-t" + simTime + "-.txt")
+      traceFiles = [dlDataSinrFile, rxPacketTraceFile]
+      return traceFiles
   else:
     dataFolder = Path(params['path'], "simulations", params['numberOfueNodes'] + " UEs", "data")
     imagesFolder = Path(params['path'], "simulations", params['numberOfueNodes'] + " UEs", "images")
@@ -35,7 +41,22 @@ def getFileName(params, type):
       return imagesFolder.joinpath(filenamePrefix + "-_positions.png")
     elif type == "latencyPlotFile":
       return imagesFolder.joinpath(filenamePrefix + "-_latency.png")
+    elif type == "simulationSourceFile":
+      return Path('scratch/4G-5G-simulation.cc')
+    elif type == "trace-5G":
+      dlDataSinrFile = dataFolder.joinpath("DlDataSinr_r" + params['radius'] + numerology + "-s" + str(params['seed']) + "-t" + simTime + "-.txt")
+      rxPacketTraceFile = dataFolder.joinpath("RxPacketTrace_r" + params['radius'] + numerology + "-s" + str(params['seed']) + "-t" + simTime + "-.txt")
+      traceFiles = [dlDataSinrFile, rxPacketTraceFile]
+      return traceFiles
   return Path()
+
+def getTracesFileNames(params):
+  traceFiles = []
+  dataFolder = Path(params['path'], "simulations", params['numberOfueNodes'] + " UEs", "data")
+  for file in dataFolder.glob("trace-s" + str(params['seed']) + '*'):
+    traceFiles.append(str(file.absolute()))
+  return traceFiles
+
 
 
 def expandValue(value):

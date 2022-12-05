@@ -1,9 +1,11 @@
 import apache_beam as beam
 from pathlib import Path
-from utilies import getFileName, expandValue
+from utilies import getFileName, expandValue, getTracesFileNames
 from subprocess import Popen
 from itertools import product
 import numpy as np
+import neptune.new as neptune
+import pandas as pd
 
 # ------------------- #
 # --- PARSE FILES --- #
@@ -71,7 +73,7 @@ def parseOptionsFile(optionsFile):
   with open(optionsFile, 'r') as f:
     for line in f:
       if line[0] != '#':
-        key, value = line.split(' ')
+        key, value = line.split()
         optionsDict[key] = expandValue(value)
   return optionsDict
 
@@ -157,21 +159,87 @@ class SimulationRun(beam.DoFn):
   def process(self, params, forced=False):
     transferFile = getFileName(params, "transferFile")
     if not transferFile.exists() or forced:
-      args = ["./ns3", "run"]
-      a = "4G-5G_comparison "
+      simName = "4G-5G_comparison"
+      ns3Args = ""
       for key, value in params.items():
         if value == "yes":
-          a += "--" + key
-        else:
-          a += "--" + key + "=" + value
-        a += " "
-      args.append(a)
+          ns3Args += "--" + key
+        elif value != "no":
+          ns3Args += "--" + key + "=" + value
+        ns3Args += " "
+      args = ["./ns3", "run", simName + " " + ns3Args]
       process = Popen(args)
       try:
         process.wait()
       finally:
         process.kill()
         process.wait()
+
+    for traceFile in getFileName(params, "trace-5G"):
+      if traceFile.exists():
+        fileName = 'trace-s' + str(params['seed']) + '-' + traceFile.stem.split('_')[0] + ".txt"
+        parent = getFileName(params, "transferFile").parent
+        traceFile.rename(parent.joinpath(fileName))
+
+    return [params]
+
+class NeptuneLogInitialData(beam.DoFn):
+  def process(self, params, neptuneData):
+
+    keys = params.keys()
+    if 'run' in keys:
+      del params['run']
+    if 'api_key' in keys:
+      del params['api_key']
+    if 'project' in keys:
+      del params['project']
+    if 'neptune' in keys:
+      del params['neptune']
+
+    if 'summaryPath' in params.keys():
+      params['summary'] = True
+    else:
+      params['summary'] = False
+
+    project = neptune.init_project(name=neptuneData["project"], api_token=neptuneData['api_token'])
+    runs = project.fetch_runs_table().to_pandas().to_dict(orient='records')
+    project.stop()
+
+    new_run = True
+    if runs:
+      for run in runs:
+        sameDict = True
+        for key, value in params.items():
+          if 'info/' + key in run.keys():
+            if run['info/' + key] != value:
+              sameDict = False
+              break
+          else:
+            sameDict = False
+            break
+        if sameDict:
+          new_run = False
+          runKey = run['sys/id']
+    if new_run:
+      run = neptune.init_run(project=neptuneData['project'],
+                              name=params['path'].split('/')[-1],
+                              api_token=neptuneData['api_token'],
+                              source_files='/home/luca.vignati/NS3/scratch/4G-5G_comparison.cc')
+      runKey = run['sys/id'].fetch()
+    else:
+      run = neptune.init_run(project=neptuneData['project'],
+                              api_token=neptuneData['api_token'],
+                              with_id=runKey)
+
+    if not params['summary']:
+      run['traces'].upload_files(getTracesFileNames(params))
+    run['info'] = params
+    run.stop()
+
+    params['run'] = runKey
+    params['api_token'] = neptuneData['api_token']
+    params['project'] = neptuneData['project']
+    params['neptune'] = True
     return [params]
 
 

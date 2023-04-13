@@ -17,6 +17,8 @@ def getFileName(params, type):
       return Path(params['summaryPath'], filenameSummaryPrefix + str(params['highestBin']) + 'ms' + "_e2eLatHist.png")
     elif type == "cumulativeLatSummaryPlotFile":
       return Path(params['summaryPath'], filenameSummaryPrefix + str(params['highestBin']) + 'ms' + "_cumulativeLat.png")
+    elif type == "cumulativeLatSummaryDataFile":
+      return Path(params['summaryPath'], filenameSummaryPrefix + str(params['highestBin']) + 'ms' + "_cumulativeLat.txt")
     elif type == "statisticsSummaryPlotFile":
       return Path(params['summaryPath'], filenameSummaryPrefix + "_statistics.png")
   elif "trace" in type:
@@ -29,6 +31,11 @@ def getFileName(params, type):
     dataFolder = Path(params['path'], "simulations", params['numberOfueNodes'] + " UEs", "data")
     imagesFolder = Path(params['path'], "simulations", params['numberOfueNodes'] + " UEs", "images")
     filenamePrefix = "r" + params['radius'] + numerology + "-s" + str(params['seed']) + "-t" + simTime
+    # if params["scenario"] == "2" or params["scenario"] == "3":
+    #   if "4G" in params["generation"]: baseStation = "eNB"
+    #   else: baseStation = "gNB"
+    #   filenamePrefix = baseStation + "3-" + filenamePrefix
+
     if type == "transferFile":
       return dataFolder.joinpath(filenamePrefix + "-_transferFile.txt")
     elif type == "positionsFile":

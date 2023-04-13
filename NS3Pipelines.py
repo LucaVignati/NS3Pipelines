@@ -1,19 +1,14 @@
 import apache_beam as beam
 from apache_beam.options.pipeline_options import DirectOptions, PipelineOptions
-from coreFunctions import ParseTransferFile, parsePositionsFile, parseOptionsFile, ExpandParameterValues, \
-  SimulationRun, Consolidate, UpdateGlobalParameters, CartesianProduct, UpdateParameters, \
-  calculateE2eLatHist, calculateCumulativeLat, calculatePacketStatistics, AggregateSeeds, \
-  AggregateNUEs, spread, updateSummaryParameters, NeptuneLogInitialData
-from utilies import getFileName, expandValue, drawRandSeeds
-from plotFunctions import plotE2ELatency, plotCumulativeLat, plotPositions, plotSummaryE2ELatency, \
-  plotSummaryCumulativeLat, plotPacketStatistics, plotLatency
+from coreFunctions import *
+from utilies import *
+from plotFunctions import *
 
 
 class CustomOptions(PipelineOptions):
   @classmethod
   def _add_argparse_args(cls, parser):
-    parser.add_argument('--parameters-file', type=str, default="NS3Pipelines/parameters.txt")
-    parser.add_argument('--options-file', type=str, default="NS3Pipelines/options.txt")
+    parser.add_argument('project_name', type=str, help="Name of the project")
     parser.add_argument('--random-seeds', type=int, default=0, help="Number of seeds to use")
     parser.add_argument('--seeds-file', type=str, default=None, help="File containing the seeds to use")
     parser.add_argument('--n-packets', type=str, default=4500000, help="Limits the cumulative number of packets across all seeds to the specified value")
@@ -25,13 +20,18 @@ class CustomOptions(PipelineOptions):
 beam_options = CustomOptions(direct_num_workers=100, direct_running_mode='multi_threading')
 
 args = beam_options.get_all_options()
+parameters_file = args['project_name'] + "/parameters.txt"
+options_file = args['project_name'] + "/options.txt"
 
-options = parseOptionsFile(args['options_file'])
+options = parseOptionsFile(options_file)
 randomSeedsNumber = int(options['randomSeeds'][0])
 randomSeedsSeed = int(options['randomSeedsSeed'][0])
 
-neptuneData = {"api_token": options["neptune_API_token"][0],
-               "project": options["neptune_project_name"][0]}
+
+neptuneData = None
+if "neptune_API_token" in options.keys():
+  neptuneData = {"api_token": options["neptune_API_token"][0],
+                 "project": options["neptune_project_name"][0]}
 
 @beam.ptransform_fn
 def GenerateParameters(pipeline, parameters_file, seeds_file, randomSeedsNumber, randomSeedsSeed, totalNumberOfPackets, dont_limit_packets):
@@ -45,7 +45,7 @@ def GenerateParameters(pipeline, parameters_file, seeds_file, randomSeedsNumber,
 
   simulationParameters = (
     pipeline | "ReadParameters" >> beam.io.ReadFromText(parameters_file)
-    | "ExpandParameterValues" >> beam.ParDo(ExpandParameterValues())
+    | "ExpandParameterValues" >> beam.ParDo(ExpandParameterValues(), args['project_name'])
     | "GroupByParameter" >> beam.GroupByKey()
     | "Consolidate" >> beam.CombineGlobally(Consolidate())
     | "UpdateGlobalPrameters" >> beam.ParDo(UpdateGlobalParameters(), seeds=beam.pvalue.AsIter(seeds), valid=validSeeds)
@@ -57,10 +57,10 @@ def GenerateParameters(pipeline, parameters_file, seeds_file, randomSeedsNumber,
 
 with beam.Pipeline(options=beam_options) as pipeline:
 
-  simulationParameters = pipeline | "GenerateParameters" >> GenerateParameters(args['parameters_file'], args['seeds_file'], randomSeedsNumber, randomSeedsSeed, int(options['totalNumberOfPackets'][0]), args['dont_limit_packets'])
+  simulationParameters = pipeline | "GenerateParameters" >> GenerateParameters(parameters_file, args['seeds_file'], randomSeedsNumber, randomSeedsSeed, int(options['totalNumberOfPackets'][0]), args['dont_limit_packets'])
 
   if args['run_simulations']:
-    simulationParameters = simulationParameters | "RunSimulations" >> beam.ParDo(SimulationRun(), options['forced'][0] == 'yes')
+    simulationParameters = simulationParameters | "RunSimulations" >> beam.ParDo(SimulationRun(), args['project_name'], options['forced'][0] == 'yes')
     # | "Reshuffle2" >> beam.Reshuffle() \
   #   | "print" >> beam.Map(print)
 
@@ -79,28 +79,32 @@ with beam.Pipeline(options=beam_options) as pipeline:
 #   # positions = simulationParameters | "parsePositionsFile" >> beam.ParDo(parsePositionsFile)
 #   # _ = positions | "plotPositions" >> beam.ParDo(plotPositions)
 
+single_plots = 'yes' in options['plotHistogram'][0] or 'yes' in options['plotCumulative'][0] or 'yes' in options['plotPositions'][0]
+
 beam_options = CustomOptions(direct_running_mode='in_memory')
 
 with beam.Pipeline(options=beam_options) as pipeline:
-  simulationParameters = pipeline | "GenerateParameters" >> GenerateParameters(args['parameters_file'], args['seeds_file'], randomSeedsNumber, randomSeedsSeed, int(options['totalNumberOfPackets'][0]), args['dont_limit_packets']) \
-    | "LogInitialDataOnNeptune" >> beam.ParDo(NeptuneLogInitialData(), neptuneData)
+  simulationParameters = pipeline | "GenerateParameters" >> GenerateParameters(parameters_file, args['seeds_file'], randomSeedsNumber, randomSeedsSeed, int(options['totalNumberOfPackets'][0]), args['dont_limit_packets'])
   
   simulationResults = simulationParameters | "ParseTranferFile" >> beam.ParDo(ParseTransferFile(), True)
 
-  if 'yes' in options['plotHistogram'][0] or 'yes' in options['plotCumulative'][0] or 'yes' in options['plotPositions'][0]:
+  if single_plots:
 
-    e2eLatHist = simulationResults | "calculateE2ELatency" >> beam.ParDo(calculateE2eLatHist, options['binWidth'], options['highestBin']) \
-      | "calculatePacketStatistics" >> beam.ParDo(calculatePacketStatistics, options['lateTreshold'])
+    # _ = simulationResults | "LogInitialDataOnNeptune" >> beam.ParDo(NeptuneLogInitialData(), neptuneData)
 
-    cumulativeLat = e2eLatHist | "calculateCumulativeLatency" >> beam.ParDo(calculateCumulativeLat)
+    # e2eLatHist = simulationResults | "calculateE2ELatency" >> beam.ParDo(calculateE2eLatHist, options['binWidth'], options['highestBin']) \
+    #   | "calculatePacketStatistics" >> beam.ParDo(calculatePacketStatistics, options['lateTreshold'])
+
+    # cumulativeLat = e2eLatHist | "calculateCumulativeLatency" >> beam.ParDo(calculateCumulativeLat) \
+    #   | "logStatistics" >> beam.ParDo(NeptuneLogStatistics())
 
     positions = simulationParameters | "parsePositionsFile" >> beam.ParDo(parsePositionsFile)
 
-    if 'yes' in options['plotHistogram'][0]:
-      _ = e2eLatHist | "plotE2ELatency" >> beam.ParDo(plotE2ELatency)
+    # if 'yes' in options['plotHistogram'][0]:
+    #   _ = e2eLatHist | "plotE2ELatency" >> beam.ParDo(plotE2ELatency)
 
-    if 'yes' in options['plotCumulative'][0]:
-      _ = cumulativeLat | "plotCumulativeLatency" >> beam.ParDo(plotCumulativeLat)
+    # if 'yes' in options['plotCumulative'][0]:
+    #   _ = cumulativeLat | "plotCumulativeLatency" >> beam.ParDo(plotCumulativeLat)
 
     if 'yes' in options['plotPositions'][0]:
       _ = positions | "plotPositions" >> beam.ParDo(plotPositions)
@@ -109,13 +113,20 @@ with beam.Pipeline(options=beam_options) as pipeline:
 
     averageResults = simulationResults | "AggregateSeeds" >> beam.CombineGlobally(AggregateSeeds()) \
       | "Spread" >> beam.ParDo(spread) \
-      | "UpdateSummaryParamerters" >> beam.ParDo(updateSummaryParameters, randomSeedsSeed) \
-      | "LogSummaryDataOnNeptune" >> beam.ParDo(NeptuneLogInitialData(), neptuneData)
+      | "UpdateSummaryParamerters" >> beam.ParDo(updateSummaryParameters, randomSeedsSeed)
+    
+    if neptuneData:
+      averageResults = averageResults | "LogSummaryDataOnNeptune" >> beam.ParDo(NeptuneLogInitialData(), neptuneData)
 
     e2eLatHistAvg = averageResults | "calculateE2ELatencyAvg" >> beam.ParDo(calculateE2eLatHist, options['binWidth'], options['highestBin']) \
       | "calculatePacketStatisticsAvg" >> beam.ParDo(calculatePacketStatistics, options['lateTreshold'])
 
     cumulativeLat = e2eLatHistAvg | "calculateCumulativeLatencyAvg" >> beam.ParDo(calculateCumulativeLat)
+    if neptuneData:
+      cumulativeLat = cumulativeLat | "logSummaryStatistics" >> beam.ParDo(NeptuneLogStatistics())
+
+    if 'yes' in options['plotSummaryCumulative'][0]:
+      _ = cumulativeLat | "plotCumulativeLatencyAvg" >> beam.ParDo(plotAvgCumulativeLat)
 
     aggregatedResults = cumulativeLat | "AggregateNumberOfUENodes" >> beam.CombineGlobally(AggregateNUEs()) \
       | "SpreadAgain" >> beam.ParDo(spread)

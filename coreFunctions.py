@@ -156,10 +156,10 @@ def calculatePacketStatistics(params, lateTreshold):
 
 
 class SimulationRun(beam.DoFn):
-  def process(self, params, forced=False):
+  def process(self, params, project_name, forced=False):
     transferFile = getFileName(params, "transferFile")
     if not transferFile.exists() or forced:
-      simName = "4G-5G_comparison"
+      simName = project_name
       ns3Args = ""
       for key, value in params.items():
         if value == "yes":
@@ -233,7 +233,7 @@ class NeptuneLogInitialData(beam.DoFn):
 
     if not params['summary']:
       run['traces'].upload_files(getTracesFileNames(params))
-    run['info'] = params
+    run['info'] = {k: params[k] for k in params.keys() if k != 'data'}
     run.stop()
 
     params['run'] = runKey
@@ -242,13 +242,32 @@ class NeptuneLogInitialData(beam.DoFn):
     params['neptune'] = True
     return [params]
 
+class NeptuneLogStatistics(beam.DoFn):
+  def process(self, params):
+    run = neptune.init_run(project=params['project'],
+                            api_token=params['api_token'],
+                            with_id=params['run'])
+    run['info/rxPercentage'] = params['results']['rxPercentage']
+    run['info/droppedPercentage'] = params['results']['droppedPercentage']
+    run['info/downlinkLatePercentage'] = params['results']['downlinkLatePercentage']
+    run['info/uplinkLatePercentage'] = params['results']['uplinkLatePercentage']
+    run.stop()
+
+    return [params]
+
 
 class ExpandParameterValues(beam.DoFn):
-  def process(self, element, seeds=None):
-    key, value = element.split(' ')
-    if key[0] != '#':
-      for val in expandValue(value):
-        yield key, str(val)
+  def process(self, element, project_name):
+    elements = element.split(' ')
+    if len(elements) == 2:
+      if '#' not in elements[0]:
+        key = elements[0]
+        value = elements[1]
+        if key == 'run_name':
+          key = 'path'
+          value = project_name + '/' + value
+        for val in expandValue(value):
+          yield key, str(val)
 
 
 class Consolidate(beam.CombineFn):
@@ -276,7 +295,7 @@ class AggregateSeeds(beam.CombineFn):
   def add_input(self, partialDict, input):
     partialKey = ''
     for key, value in input.items():
-      if key != 'seed' and key != 'data':
+      if key != 'seed' and key != 'data' and key != 'run':
         partialKey += str(value)
     
     if partialKey in partialDict.keys():
@@ -316,7 +335,7 @@ class AggregateNUEs(beam.CombineFn):
   def add_input(self, partialDict, input):
     partialKey = ''
     for key, value in input.items():
-      if key != 'numberOfueNodes' and key != 'results' and key != 'nPackets' and key != 'simTime':
+      if key != 'numberOfueNodes' and key != 'results' and key != 'nPackets' and key != 'simTime' and key != 'run':
         partialKey += str(value)
     
     if partialKey in partialDict.keys():
@@ -361,7 +380,7 @@ class CartesianProduct(beam.DoFn):
     for generation in globalDict["generation"]:
       partialDict = globalDict.copy()
       partialDict["generation"] = [generation]
-      if generation == "4G":
+      if generation != "5G":
         del partialDict["numerology"]
       keys = partialDict.keys()
       vals = partialDict.values()
